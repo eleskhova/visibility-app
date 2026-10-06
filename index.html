@@ -1216,6 +1216,7 @@ function NewEntryForm({ onSaved }) {
       setBanner({ type: "ok", text: "✓ Saved. Photos and details are stored automatically." });
       setOdo(""); setNotes(""); setAck(false);
       setPhotos({ front: null, back: null, left: null, right: null, odometer: null, licence: null, disc: null });
+      window.dispatchEvent(new Event("visibility-recheck"));
       if (onSaved) onSaved();
     } catch (e) {
       setBanner({ type: "err", text: "Could not save: " + (e && (e.message || e.error_description || JSON.stringify(e))) });
@@ -1299,10 +1300,8 @@ function NewEntryForm({ onSaved }) {
         </div>
       </div>
 
-      <div className="field">
-        <label>Odometer reading (km)</label>
-        <input type="number" inputMode="numeric" value={odo} onChange={(e) => setOdo(e.target.value)} placeholder="e.g. 84213" />
-      </div>
+      <OdometerCapture label="Odometer reading (km)" odo={odo} setOdo={setOdo} regNo={regNo} photo={photos.odometer}
+        onPhoto={(d) => setPhotos((p) => ({ ...p, odometer: d }))} onRemove={() => setPhotos((p) => ({ ...p, odometer: null }))} />
 
       <div className="field">
         <label>Photos</label>
@@ -1312,7 +1311,6 @@ function NewEntryForm({ onSaved }) {
           <PhotoSlot label="Back" dataUrl={photos.back} onPick={(f) => handlePick("back", f)} onRemove={() => setPhotos((p) => ({ ...p, back: null }))} />
           <PhotoSlot label="Left side" dataUrl={photos.left} onPick={(f) => handlePick("left", f)} onRemove={() => setPhotos((p) => ({ ...p, left: null }))} />
           <PhotoSlot label="Right side" dataUrl={photos.right} onPick={(f) => handlePick("right", f)} onRemove={() => setPhotos((p) => ({ ...p, right: null }))} />
-          <PhotoSlot label="Odometer" dataUrl={photos.odometer} onPick={(f) => handlePick("odometer", f)} onRemove={() => setPhotos((p) => ({ ...p, odometer: null }))} />
           <PhotoSlot label="Driver's Licence" dataUrl={photos.licence} onPick={(f) => handlePick("licence", f)} onRemove={() => setPhotos((p) => ({ ...p, licence: null }))} />
           <PhotoSlot label="Licence Disc" dataUrl={photos.disc} onPick={(f) => handlePick("disc", f)} onRemove={() => setPhotos((p) => ({ ...p, disc: null }))} />
         </div>
@@ -1445,6 +1443,7 @@ function ParcelIssueForm({ onSaved }) {
       localStorage.setItem("eleskhova_driver_name", driver.trim());
       setBanner({ type: "ok", text: "✓ Parcel issue logged. If this is urgent, message the Company directly too — the app doesn't send instant alerts." });
       setParcelRef(""); setClientRef(""); setDescription(""); setPhoto(null); setAck(false);
+      window.dispatchEvent(new Event("visibility-recheck"));
       if (onSaved) onSaved();
     } catch (e) {
       setBanner({ type: "err", text: "Could not save: " + (e && (e.message || e.error_description || JSON.stringify(e))) });
@@ -1522,12 +1521,13 @@ function FuelLogForm({ onSaved }) {
   const [odo, setOdo] = useState("");
   const [notes, setNotes] = useState("");
   const [receipt, setReceipt] = useState(null);
+  const [odoPhoto, setOdoPhoto] = useState(null);
   const [ack, setAck] = useState(false);
   const [saving, setSaving] = useState(false);
   const [banner, setBanner] = useState(null);
 
   const canSubmit = driver.trim() && regNo.trim() && garage.trim() && litres.trim() &&
-    amount.trim() && odo.trim() && receipt && ack && !saving;
+    amount.trim() && odo.trim() && receipt && odoPhoto && ack && !saving;
 
   async function handlePick(file) {
     try {
@@ -1543,7 +1543,7 @@ function FuelLogForm({ onSaved }) {
     setSaving(true);
     setBanner(null);
     try {
-      const uploadedPhotos = receipt ? [{ label: "receipt", url: await uploadPhoto(receipt, "fuel-logs") }] : [];
+      const uploadedPhotos = await uploadPhotoSet({ odometer: odoPhoto, receipt }, "fuel-logs");
       const { error } = await db.from("fuel_logs").insert([{
         driver: driver.trim(),
         reg_no: regNo.trim(),
@@ -1560,7 +1560,8 @@ function FuelLogForm({ onSaved }) {
       localStorage.setItem("eleskhova_driver_name", driver.trim());
       localStorage.setItem("eleskhova_reg_no", regNo.trim());
       setBanner({ type: "ok", text: "✓ Fuel fill-up logged." });
-      setGarage(""); setLitres(""); setAmount(""); setOdo(""); setNotes(""); setReceipt(null); setAck(false);
+      setGarage(""); setLitres(""); setAmount(""); setOdo(""); setNotes(""); setReceipt(null); setOdoPhoto(null); setAck(false);
+      window.dispatchEvent(new Event("visibility-recheck"));
       if (onSaved) onSaved();
     } catch (e) {
       setBanner({ type: "err", text: "Could not save: " + (e && (e.message || e.error_description || JSON.stringify(e))) });
@@ -1605,10 +1606,8 @@ function FuelLogForm({ onSaved }) {
         </div>
       </div>
 
-      <div className="field">
-        <label>Odometer at fill-up (km)</label>
-        <input type="number" inputMode="numeric" value={odo} onChange={(e) => setOdo(e.target.value)} placeholder="e.g. 84213" />
-      </div>
+      <OdometerCapture label="Odometer at fill-up (km)" odo={odo} setOdo={setOdo} regNo={regNo} photo={odoPhoto}
+        onPhoto={setOdoPhoto} onRemove={() => setOdoPhoto(null)} />
 
       <div className="field">
         <label>Receipt photo</label>
@@ -1908,6 +1907,7 @@ function SafetyCheckInForm({ onSaved }) {
       setBanner({ type: "ok", text: "✓ Checked in" + (location ? " with location." : " — location unavailable, but check-in saved.") });
       setNote("");
       loadTodays();
+      window.dispatchEvent(new Event("visibility-recheck"));
       if (onSaved) onSaved();
     } catch (err) {
       setBanner({ type: "err", text: "Could not save check-in. Try again." });
@@ -1927,6 +1927,7 @@ function SafetyCheckInForm({ onSaved }) {
       if (error) throw error;
       setBanner({ type: "ok", text: "✓ Emergency alert sent with your location." });
       setPanicConfirm(false);
+      window.dispatchEvent(new Event("visibility-recheck"));
       if (onSaved) onSaved();
     } catch (err) {
       setBanner({ type: "err", text: "Could not send alert. If you're in danger, call 10111 directly." });
@@ -2175,6 +2176,7 @@ function ExceptionForm({ onSaved }) {
       localStorage.setItem("eleskhova_driver_name", driver.trim());
       setBanner({ type: "ok", text: "✓ Exception logged." });
       setType(null); setTrackingNumber(""); setDescription(""); setPhoto(null); setAck(false);
+      window.dispatchEvent(new Event("visibility-recheck"));
       if (onSaved) onSaved();
     } catch (e) {
       setBanner({ type: "err", text: "Could not save: " + (e && (e.message || JSON.stringify(e))) });
@@ -3054,6 +3056,7 @@ function BackOfficeShell({ session, role }) {
     { group: "Fleet", items: [
       { id: "vehicle-checks", label: "Vehicle Checks", icon: "vehicle" },
       { id: "fuel-logs", label: "Fuel Logs", icon: "fuel" },
+      { id: "odometer", label: "Odometer Review", icon: "vehicle" },
     ] },
     { group: "Reports", items: [
       { id: "compliance", label: "Compliance & KM", icon: "vehicle" },
@@ -3094,6 +3097,7 @@ function BackOfficeShell({ session, role }) {
   else if (page === "safety-activity") body = <SafetyActivityPage />;
   else if (page === "vehicle-checks") body = <LogList kind="vehicle_checks" />;
   else if (page === "fuel-logs") body = <LogList kind="fuel_logs" />;
+  else if (page === "odometer") body = <OdometerReviewPage />;
   else if (page === "compliance") body = <CompliancePage />;
   else if (page === "records") body = <LogList />;
   else if (page === "users" && isAdmin) body = <AdminUsersTab currentUserId={session.user.id} />;
@@ -3805,6 +3809,120 @@ function CompliancePage() {
   );
 }
 
+// ---------- Phase 3b: odometer capture, hold screen, staff review ----------
+function OdometerCapture({ label, odo, setOdo, regNo, photo, onPhoto, onRemove }) {
+  const [last, setLast] = useState(null);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    let off = false;
+    const reg = (regNo || "").trim();
+    if (reg.length < 3) { setLast(null); return; }
+    const t = setTimeout(async () => {
+      const r = await db.rpc("vehicle_last_odometer", { p_reg: reg });
+      if (!off) setLast(r.error ? null : r.data);
+    }, 400);
+    return () => { off = true; clearTimeout(t); };
+  }, [regNo]);
+  const n = Number(String(odo).replace(/[\s,]/g, ""));
+  const lower = last !== null && last !== undefined && String(odo).trim() !== "" && !isNaN(n) && n < last;
+  async function pick(f) {
+    try { setErr(null); onPhoto(await compressImage(f)); }
+    catch (e) { setErr("Could not read that photo. Try again."); }
+  }
+  return (
+    <div className="field">
+      <label>{label}</label>
+      <input type="number" inputMode="numeric" min="0" value={odo} onChange={(e) => setOdo(e.target.value)} placeholder="e.g. 84213" />
+      {last !== null && last !== undefined && <div className="section-hint">Last recorded for this vehicle: <b>{Number(last).toLocaleString("en-ZA")} km</b></div>}
+      {lower && <div className="banner show err">This is lower than the last recorded km. Check what you typed. If you submit it, your account will be put on hold until the office reviews your odometer photo.</div>}
+      {String(odo).trim() === "" ? (
+        <div className="section-hint">Type the km first. You will then be asked to photograph the odometer showing that reading.</div>
+      ) : (
+        <>
+          <div className="section-hint"><b>Now take a photo of the odometer</b> so the reading above is clearly visible. Required.</div>
+          <div className="photo-row"><PhotoSlot label="Odometer" dataUrl={photo} onPick={pick} onRemove={onRemove} /></div>
+        </>
+      )}
+      {err && <div className="banner show err">{err}</div>}
+    </div>
+  );
+}
+
+function OdometerHoldScreen({ hold, recheck }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="login-wrap"><div className="login-card ob-status">
+      <h2>Account on hold: odometer review</h2>
+      {hold.reason === "lower_than_previous" ? (
+        <p>The odometer reading you entered ({Number(hold.reading).toLocaleString("en-ZA")} km) was lower than the last recorded reading for this vehicle ({Number(hold.previous_odo).toLocaleString("en-ZA")} km).</p>
+      ) : (
+        <p>The odometer reading you entered could not be read as a number.</p>
+      )}
+      <p>The office will check your odometer photo and release your account. You cannot log vehicle checks, fuel or parcels until then. Please contact Eleskhova Logistics: 084 765 6448 · info@eleskhovagroup.co.za</p>
+      <button type="button" className="submit-btn" disabled={busy} onClick={async () => { setBusy(true); await recheck(); setBusy(false); }}>{busy ? "Checking…" : "Check again"}</button>
+      <button type="button" className="ob-secondary" style={{ marginTop: 10 }} onClick={() => db.auth.signOut()}>Log out</button>
+    </div></div>
+  );
+}
+
+function OdometerReviewPage() {
+  const [filter, setFilter] = useState("open");
+  const [rows, setRows] = useState(null);
+  const [error, setError] = useState(null);
+  const [notes, setNotes] = useState({});
+  const [busy, setBusy] = useState(null);
+
+  async function load() {
+    setError(null);
+    const r = await db.rpc("staff_odometer_flags", { p_status: filter });
+    if (r.error) { setRows([]); setError("Odometer review is not available yet (database update pending) or you do not have access."); return; }
+    setRows(r.data || []);
+  }
+  useEffect(() => { setRows(null); load(); }, [filter]);
+
+  async function resolve(id, action) {
+    setBusy(id); setError(null);
+    const r = await db.rpc("staff_resolve_odometer_flag", { p_flag: id, p_action: action, p_note: notes[id] || "" });
+    setBusy(null);
+    if (r.error) { setError(r.error.message); return; }
+    load();
+  }
+  const fdate = (v) => (v ? new Date(v).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" }) : "—");
+
+  return (
+    <div className="content">
+      <div className="filter-row">
+        <select className="status-select" value={filter} onChange={(e) => setFilter(e.target.value)}>
+          <option value="open">Open (drivers on hold)</option>
+          <option value="all">All</option>
+          <option value="released">Released</option>
+          <option value="baseline_reset">Baseline reset</option>
+        </select>
+      </div>
+      <div className="section-hint">Compare the photo with the km the driver typed. <b>Release</b> if the new reading was a mistake. <b>Use this reading</b> if the previous recorded km was wrong. A note is required and is audited.</div>
+      {error && <div className="banner show err">{error}</div>}
+      {rows === null ? <div className="log-empty">Loading…</div> : rows.length === 0 ? <div className="log-empty">No odometer flags.</div> : rows.map((f) => (
+        <div key={f.flag_id} className="ob-card">
+          <div><b>{f.driver_name || f.email}</b> · {f.reg_norm || "—"} · {fdate(f.created_at)}</div>
+          <div>{f.reason === "lower_than_previous"
+            ? <>Entered <b>{Number(f.reading).toLocaleString("en-ZA")} km</b>, previous recorded <b>{Number(f.previous_odo).toLocaleString("en-ZA")} km</b></>
+            : <>Reading could not be read as a number</>}</div>
+          <div className="log-photos">{f.photo_url ? <SecureImg src={f.photo_url} /> : <span className="section-hint">No photo found</span>}</div>
+          {f.status === "open" ? (
+            <>
+              <input className="status-select" placeholder="Decision note (required)" value={notes[f.flag_id] || ""} onChange={(e) => setNotes((n) => ({ ...n, [f.flag_id]: e.target.value }))} />
+              <div className="doc-actions">
+                <button type="button" className="resolve-btn" disabled={busy === f.flag_id} onClick={() => resolve(f.flag_id, "release")}>Release driver (keep previous km)</button>
+                {f.reason === "lower_than_previous" && <button type="button" className="resolve-btn" disabled={busy === f.flag_id} onClick={() => resolve(f.flag_id, "reset_baseline")}>Previous km was wrong: use this reading</button>}
+              </div>
+            </>
+          ) : <div className="section-hint">{f.status === "released" ? "Released" : "Baseline reset"} · {fdate(f.resolved_at)} · {f.resolution_note}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function LoginScreen({ onTrackInstead }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -3931,6 +4049,21 @@ function AuthGate() {
   const [profile, setProfile] = useState(null);
   const [profileError, setProfileError] = useState(false);
   const [showTracking, setShowTracking] = useState(false);
+  const [hold, setHold] = useState(null);
+
+  async function loadHold() {
+    const r = await db.rpc("my_odometer_hold");
+    setHold(!r.error && r.data && r.data.length ? r.data[0] : null);
+  }
+  useEffect(() => {
+    const active = session && role === "driver" && profile && (profile.driver_status === undefined || profile.driver_status === "active");
+    if (!active) { setHold(null); return; }
+    loadHold();
+    const t = setInterval(loadHold, 20000);
+    const h = () => loadHold();
+    window.addEventListener("visibility-recheck", h);
+    return () => { clearInterval(t); window.removeEventListener("visibility-recheck", h); };
+  }, [session, role, profile]);
 
   async function loadProfile(sess) {
     const s2 = sess || session;
@@ -3981,6 +4114,7 @@ function AuthGate() {
   if (role === "driver" && driverStatus !== "active") {
     return <OnboardingFlow session={session} profile={profile} reload={() => loadProfile(session)} />;
   }
+  if (role === "driver" && hold) return <OdometerHoldScreen hold={hold} recheck={loadHold} />;
   return <App session={session} role={role} />;
 }
 

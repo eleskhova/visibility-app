@@ -1,6 +1,21 @@
 -- Phase 3a: compliance & km reports (read-only, staff only). Safe to re-run.
 -- Adds 3 SECURITY DEFINER functions; no tables/policies changed.
 
+-- Shared helpers (also used by Phase 3b) ------------------------------------
+create or replace function public.odo_norm_reg(p text) returns text
+language sql immutable set search_path = public as $$
+  select nullif(upper(regexp_replace(coalesce(p,''), '[^A-Za-z0-9]', '', 'g')), '');
+$$;
+
+-- Parses what a driver typed ("84213", "84 213 km", "84,213", "84213.5") into whole km, or NULL if unusable.
+create or replace function public.odo_parse(p text) returns bigint
+language plpgsql immutable set search_path = public as $$
+declare v text := regexp_replace(lower(coalesce(p,'')), '\s|,|km', '', 'g');
+begin
+  if v ~ '^[0-9]{1,7}(\.[0-9]+)?$' then return floor(v::numeric)::bigint; end if;
+  return null;
+end $$;
+
 create or replace function public.staff_expiry_report(p_days int default 60)
 returns table (user_id uuid, driver_name text, email text, doc_type text, doc_label text,
                expiry_date date, days_left int, doc_status text)
@@ -28,15 +43,13 @@ begin
   end if;
   return query
   with r as (
-    select upper(regexp_replace(v.reg_no,'[^A-Za-z0-9]','','g')) as reg, v.created_at as ts, v.driver as drv,
-           case when length(regexp_replace(coalesce(v.odo,''),'[^0-9]','','g')) between 1 and 7
-                then regexp_replace(v.odo,'[^0-9]','','g')::bigint end as o
+    select public.odo_norm_reg(v.reg_no) as reg, v.created_at as ts, v.driver as drv,
+           public.odo_parse(v.odo) as o
     from public.vehicle_checks v
     where v.created_at >= p_from::timestamptz and v.created_at < (p_to + 1)::timestamptz
     union all
-    select upper(regexp_replace(f.reg_no,'[^A-Za-z0-9]','','g')), f.created_at, f.driver,
-           case when length(regexp_replace(coalesce(f.odo,''),'[^0-9]','','g')) between 1 and 7
-                then regexp_replace(f.odo,'[^0-9]','','g')::bigint end
+    select public.odo_norm_reg(f.reg_no), f.created_at, f.driver,
+           public.odo_parse(f.odo)
     from public.fuel_logs f
     where f.created_at >= p_from::timestamptz and f.created_at < (p_to + 1)::timestamptz
   ), w as (
@@ -81,7 +94,7 @@ begin
 end $$;
 
 do $$ declare f text; begin
-  foreach f in array array['public.staff_expiry_report(int)','public.staff_km_summary(date,date)','public.staff_check_compliance(date,date)'] loop
+  foreach f in array array['public.odo_norm_reg(text)','public.odo_parse(text)','public.staff_expiry_report(int)','public.staff_km_summary(date,date)','public.staff_check_compliance(date,date)'] loop
     execute format('revoke all on function %s from public, anon', f);
     execute format('grant execute on function %s to authenticated', f);
   end loop;
