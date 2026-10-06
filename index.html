@@ -2409,6 +2409,7 @@ function AdminUsersTab({ currentUserId }) {
                   <option value="admin">Super Admin — everything incl. users &amp; roles</option>
                 </select>
               </div>
+              <ClockNumberEditor user={u} onSaved={load} />
             </div>
           ))}
         </div>
@@ -4294,6 +4295,7 @@ function DriverProfilePage({ onChanged }) {
       </div>
       <div className="prof-grid">
         <div><label>Status</label><b>{statusLabel}</b></div>
+        <div><label>Clock number</label><b>{p.clock_number || "Not assigned"}</b></div>
         <div><label>Phone</label><b>{p.phone || "—"}</b></div>
         <div><label>ID number</label><b>{p.id_masked || "—"}</b></div>
         <div><label>Vehicle</label><b>{[p.vehicle_type, p.vehicle_reg].filter(Boolean).join(" · ") || "—"}</b></div>
@@ -4316,6 +4318,31 @@ function DriverProfilePage({ onChanged }) {
   );
 }
 
+
+function ClockNumberEditor({ user, onSaved }) {
+  const [v, setV] = useState(user.clock_number || "");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const prefix = user.role === "driver" ? "ELSD" : user.role === "ops_manager" ? "ELSM" : "ELSA";
+  async function save() {
+    setBusy(true); setMsg(null);
+    const r = await db.rpc("staff_set_clock_number", { p_user: user.id, p_clock: v });
+    if (r.error) setMsg({ t: "err", x: r.error.message });
+    else { setMsg({ t: "ok", x: "Saved." }); if (onSaved) onSaved(); }
+    setBusy(false);
+  }
+  return (
+    <div className="field" style={{ marginTop: 10, marginBottom: 0 }}>
+      <label>Clock number (login ID, starts {prefix})</label>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input type="text" value={v} maxLength={8} autoCapitalize="characters" onChange={(e) => setV(e.target.value.toUpperCase())} placeholder={prefix + "0000"} />
+        <button type="button" className="resolve-btn" disabled={busy || v === (user.clock_number || "")} onClick={save}>{busy ? "Saving…" : "Save"}</button>
+      </div>
+      {msg && <div className={"banner show " + msg.t} style={{ marginTop: 6 }}>{msg.x}</div>}
+    </div>
+  );
+}
+
 function LoginScreen({ onTrackInstead }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -4326,8 +4353,14 @@ function LoginScreen({ onTrackInstead }) {
     e.preventDefault();
     setLoading(true);
     setError(null);
-    const { error } = await db.auth.signInWithPassword({ email: email.trim(), password });
-    if (error) setError(error.message);
+    let loginEmail = email.trim();
+    if (/^els[dam]\s*[0-9]{4}$/i.test(loginEmail)) {
+      const r = await db.rpc("login_email_for_clock", { p_clock: loginEmail });
+      if (r.error || !r.data) { setError("Could not sign in. Check your clock number and password."); setLoading(false); return; }
+      loginEmail = r.data;
+    }
+    const { error } = await db.auth.signInWithPassword({ email: loginEmail, password });
+    if (error) setError(/invalid login/i.test(error.message) ? "Incorrect clock number/email or password." : error.message);
     setLoading(false);
   }
 
@@ -4350,8 +4383,8 @@ function LoginScreen({ onTrackInstead }) {
         <div className="login-sub">Eleskhova Logistics — Back Office</div>
         <form onSubmit={handleLogin}>
           <div className="field">
-            <label>Email</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@eleskhovagroup.co.za" required />
+            <label>Clock number or email</label>
+            <input type="text" autoCapitalize="characters" autoCorrect="off" spellCheck="false" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="ELSD0012" required />
           </div>
           <div className="field">
             <label>Password</label>

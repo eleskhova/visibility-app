@@ -1,0 +1,40 @@
+begin;
+grant all on all tables in schema public to authenticated; grant usage on schema public to authenticated, anon;
+create temp table t7(test text, result text) on commit drop; grant all on t7 to public;
+do $$
+declare a uuid:=gen_random_uuid(); d uuid:=gen_random_uuid(); m uuid:=gen_random_uuid(); n int; r text;
+begin
+  insert into auth.users(id,email) values (a,'a7@x.co'),(d,'d7@x.co'),(m,'m7@x.co');
+  insert into public.profiles(id,email,role,driver_status) values (a,'a7@x.co','admin','active'),(d,'d7@x.co','driver','active'),(m,'m7@x.co','ops_manager','active')
+   on conflict (id) do update set role=excluded.role, driver_status='active';
+  perform set_config('request.jwt.claims', json_build_object('sub', a, 'role','authenticated')::text, true);
+  set local role authenticated;
+  perform public.staff_set_clock_number(d,' elsd 9912 ');
+  insert into t7 values ('admin sets driver number, normalised', case when (select clock_number from public.profiles where id=d)='ELSD9912' then 'PASS' else 'FAIL' end);
+  perform public.staff_set_clock_number(a,'ELSA9922'); perform public.staff_set_clock_number(m,'ELSM9901');
+  insert into t7 values ('admin and manager numbers set','PASS');
+  begin perform public.staff_set_clock_number(d,'ELSA9913'); insert into t7 values ('driver cannot get ELSA number','FAIL'); exception when others then insert into t7 values ('driver cannot get ELSA number','PASS'); end;
+  begin perform public.staff_set_clock_number(m,'ELSD9914'); insert into t7 values ('manager cannot get ELSD number','FAIL'); exception when others then insert into t7 values ('manager cannot get ELSD number','PASS'); end;
+  begin perform public.staff_set_clock_number(m,'ELSD99'); insert into t7 values ('bad format rejected','FAIL'); exception when others then insert into t7 values ('bad format rejected','PASS'); end;
+  begin perform public.staff_set_clock_number(m,'ELSM9912'); perform public.staff_set_clock_number(d,'ELSD9901'); perform public.staff_set_clock_number(a,'ELSA9901');
+        insert into t7 values ('duplicate setup ok','PASS'); exception when others then insert into t7 values ('duplicate setup ok','FAIL '||sqlerrm); end;
+  begin perform public.staff_set_clock_number(a,'ELSA9922'); update public.profiles set clock_number='ELSA9922' where id=m; insert into t7 values ('duplicate number rejected','FAIL'); exception when others then insert into t7 values ('duplicate number rejected','PASS'); end;
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', d, 'role','authenticated')::text, true);
+  set local role authenticated;
+  begin perform public.staff_set_clock_number(d,'ELSD9950'); insert into t7 values ('driver cannot call setter','FAIL'); exception when others then insert into t7 values ('driver cannot call setter','PASS'); end;
+  begin update public.profiles set clock_number='ELSD9951' where id=d; get diagnostics n=row_count; insert into t7 values ('driver direct update blocked', case when n=0 then 'PASS' else 'FAIL' end); exception when others then insert into t7 values ('driver direct update blocked','PASS'); end;
+  select clock_number into r from public.my_profile();
+  insert into t7 values ('my_profile shows clock number', case when r='ELSD9901' then 'PASS' else 'FAIL '||coalesce(r,'null') end);
+  reset role; set local role anon;
+  select public.login_email_for_clock('elsd9901') into r;
+  insert into t7 values ('anon lookup finds email, case-insensitive', case when r='d7@x.co' then 'PASS' else 'FAIL '||coalesce(r,'null') end);
+  select public.login_email_for_clock('ELSD0000') into r;
+  insert into t7 values ('unknown number gets fake address', case when r like 'nomatch-%@invalid.invalid' then 'PASS' else 'FAIL' end);
+  select public.login_email_for_clock('x'' or 1=1 --') into r;
+  insert into t7 values ('junk input safe', case when r like 'nomatch-%' then 'PASS' else 'FAIL' end);
+  begin perform public.staff_set_clock_number(d,'ELSD9960'); insert into t7 values ('anon cannot call setter','FAIL'); exception when insufficient_privilege then insert into t7 values ('anon cannot call setter','PASS'); end;
+  reset role;
+end $$;
+select * from t7;
+rollback;
