@@ -983,6 +983,9 @@ function(a,b,c){if(!Vd(b))throw Error(n(200));return Wd(null,a,b,!1,c)};Q.unmoun
   .rep-table th, .rep-table td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
   .rep-table th { background: #F1F4F8; color: var(--navy); font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
   .rep-warn td { background: #FFF8E6; }
+  .log-table .log-caret { width: 18px; color: #6B7C93; }
+  .log-table .log-row:hover td { background: #EAF2FD; }
+  .log-table .log-detail td { white-space: normal; background: #F7FAFE; padding: 12px 16px; }
   .rep-bad td { background: #FDECE8; }
   /* ================= Phase 3c: deliveries ================= */
   .dl-card { background: var(--card); border: 1.5px solid var(--line); border-radius: 12px; padding: 14px; margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
@@ -1723,56 +1726,7 @@ function LogList({ kind }) {
         <div className="log-empty">Nothing logged yet.<br />Submit a vehicle check, parcel issue, or fuel fill-up to get started.</div>
 
       ) : (
-        <div className="log-list">
-          {shown.map((e, i) => {
-            const isParcel = e.recordType === "parcel";
-            const isFuel = e.recordType === "fuel";
-            const isException = e.recordType === "exception";
-            const cardClass = isException ? "log-card exception" : isParcel ? "log-card parcel" : isFuel ? "log-card fuel" : "log-card" + (e.checkType === "PM" ? " pm" : "");
-            const badgeText = isException ? e.status : isParcel ? e.issueType : isFuel ? "Fuel" : (e.checkType === "PM" ? "Closing" : "Opening");
-            const badgeClass = isException ? " status-pill active-" + e.status.toLowerCase().replace(/ /g, "-") : isParcel ? " parcel-badge" : isFuel ? " fuel-badge" : "";
-            return (
-              <div key={i} className={cardClass}>
-                <div className="log-head">
-                  <div>
-                    <div className="log-driver">{isException ? e.issueType : e.driver}</div>
-                    <div className="log-meta">
-                      {isException ? e.driver + (e.parcelRef ? " · " + e.parcelRef : "") : (isParcel ? e.parcelRef : e.regNo)} · {formatDateTime(e.timestamp)}
-                    </div>
-                  </div>
-                  <div className={"log-badge" + badgeClass}>{badgeText}</div>
-                </div>
-                {!isParcel && !isFuel && !isException && <div className="log-odo">{e.odo} km</div>}
-                {isParcel && e.clientRef && <div className="log-meta">Ref: {e.clientRef}</div>}
-                {isFuel && (
-                  <div className="log-odo">{e.litres} L — R{e.amount} ({e.paymentMethod})</div>
-                )}
-                {isFuel && <div className="log-meta">{e.garage} · {e.odo} km</div>}
-                {isException && <div className="log-notes">{e.notes}</div>}
-                {!isException && e.notes && (
-                  <div className="log-notes">
-                    {e.notes}
-                    <div className="resolve-row">
-                      <span className={"resolve-badge" + (e.status === "resolved" ? " resolved" : "")}>
-                        {e.status === "resolved" ? "Resolved" : "Open"}
-                      </span>
-                      <button className="resolve-btn" onClick={() => toggleResolved(e)}>
-                        {e.status === "resolved" ? "Reopen" : "Mark resolved"}
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {e.photos && e.photos.length > 0 && (
-                  <div className="log-photos">
-                    {e.photos.map((p, j) => (
-                      <SecureImg key={j} src={p.url} onOpen={setLightbox} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        <LogTable rows={shown} kind={kind} onToggle={toggleResolved} onOpenPhoto={setLightbox} />
       )}
       {lightbox && (
         <div className={"lightbox show"} onClick={() => setLightbox(null)}>
@@ -4463,6 +4417,69 @@ function SectionHome({ section, onNavigate }) {
             <span className="feed-time">{timeAgo(x.created_at)}</span>
           </button>))}
         </div>)}
+    </div>
+  );
+}
+
+
+// ---------- Table view for record lists (vehicle checks, fuel, parcel issues, all records) ----------
+function LogTable({ rows, kind, onToggle, onOpenPhoto }) {
+  const [open, setOpen] = useState(null);
+  const dt = (v) => formatDateTime(v);
+  const typeOf = (e) => (e.__table === "vehicle_checks" ? "Vehicle check" : e.__table === "fuel_logs" ? "Fuel" : e.__table === "parcel_issues" ? "Parcel issue" : "Exception");
+  let head, cells;
+  if (kind === "vehicle_checks") {
+    head = ["Date and time", "Driver", "Vehicle", "Check", "KM", "Photos", "Status"];
+    cells = (e) => [dt(e.timestamp), e.driver, e.regNo, e.checkType === "PM" ? "Closing" : "Opening", e.odo, (e.photos || []).length, e.notes ? (e.status === "resolved" ? "Resolved" : "Defect noted") : "OK"];
+  } else if (kind === "fuel_logs") {
+    head = ["Date and time", "Driver", "Vehicle", "Garage", "Litres", "Amount (R)", "Payment", "KM", "Photos"];
+    cells = (e) => [dt(e.timestamp), e.driver, e.regNo, e.garage, e.litres, e.amount, e.paymentMethod, e.odo, (e.photos || []).length];
+  } else if (kind === "parcel_issues") {
+    head = ["Date and time", "Driver", "Vehicle", "Issue", "Parcel ref", "Client ref", "Photos", "Status"];
+    cells = (e) => [dt(e.timestamp), e.driver, e.regNo, e.issueType, e.parcelRef, e.clientRef, (e.photos || []).length, e.status === "resolved" ? "Resolved" : "Open"];
+  } else {
+    head = ["Date and time", "Record", "Driver", "Vehicle", "Detail", "Photos", "Status"];
+    cells = (e) => [dt(e.timestamp), typeOf(e), e.driver,
+      e.regNo, e.__table === "vehicle_checks" ? (e.checkType === "PM" ? "Closing" : "Opening") + " · " + e.odo + " km" : e.__table === "fuel_logs" ? e.litres + " L · R" + e.amount : (e.issueType || "") + (e.parcelRef ? " · " + e.parcelRef : ""),
+      (e.photos || []).length, e.status || "—"];
+  }
+  const flagged = (e) => e.status === "open" && (e.notes || e.__table === "exceptions");
+  return (
+    <div className="rep-wrap">
+      <table className="rep-table log-table">
+        <thead><tr><th></th>{head.map((h) => <th key={h}>{h}</th>)}</tr></thead>
+        <tbody>
+          {rows.map((e, i) => {
+            const k = e.__table + ":" + e.id;
+            const isOpen = open === k;
+            const cs = cells(e);
+            return (
+              <React.Fragment key={k + i}>
+                <tr className={(flagged(e) ? "rep-warn " : "") + "log-row"} onClick={() => setOpen(isOpen ? null : k)} style={{ cursor: "pointer" }}>
+                  <td className="log-caret">{isOpen ? "▾" : "▸"}</td>
+                  {cs.map((c, j) => <td key={j}>{c === null || c === undefined || c === "" ? "—" : c}</td>)}
+                </tr>
+                {isOpen && (
+                  <tr className="log-detail"><td colSpan={head.length + 1}>
+                    {e.idNumber ? null : null}
+                    {e.notes && <div className="log-notes" style={{ marginBottom: 8 }}>{e.notes}</div>}
+                    {!e.notes && <div className="log-meta">No notes.</div>}
+                    {e.notes && e.__table !== "exceptions" && e.status && (
+                      <div className="resolve-row">
+                        <span className={"resolve-badge" + (e.status === "resolved" ? " resolved" : "")}>{e.status === "resolved" ? "Resolved" : "Open"}</span>
+                        <button type="button" className="resolve-btn" onClick={(ev) => { ev.stopPropagation(); onToggle(e); }}>{e.status === "resolved" ? "Reopen" : "Mark resolved"}</button>
+                      </div>
+                    )}
+                    {e.photos && e.photos.length > 0 && (
+                      <div className="log-photos">{e.photos.map((p, j) => <SecureImg key={j} src={p.url} onOpen={onOpenPhoto} />)}</div>
+                    )}
+                  </td></tr>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
