@@ -4250,6 +4250,7 @@ function DriverProfilePage({ onChanged }) {
   const [cam, setCam] = useState(false);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef(null);
+  const galRef = useRef(null);
 
   async function load() {
     const [a, b] = await Promise.all([db.rpc("my_profile"), db.rpc("my_documents")]);
@@ -4286,7 +4287,9 @@ function DriverProfilePage({ onChanged }) {
           <div className="prof-name">{p.full_name || "Driver"}</div>
           <div className="log-meta">{p.email}</div>
           <button type="button" className="resolve-btn" disabled={busy} onClick={choose}>{busy ? "Saving…" : p.avatar_path ? "Change photo" : "Add profile photo"}</button>
+          <button type="button" className="resolve-btn" style={{ marginLeft: 8 }} disabled={busy} onClick={() => galRef.current && galRef.current.click()}>Choose from gallery</button>
           <input ref={fileRef} type="file" accept="image/*" capture="user" style={{ display: "none" }} onChange={(e) => { const f = e.target.files[0]; if (f) saveFile(f); e.target.value = ""; }} />
+          <input ref={galRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => { const f = e.target.files[0]; if (f) saveFile(f); e.target.value = ""; }} />
         </div>
       </div>
       <div className="prof-grid">
