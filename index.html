@@ -3876,6 +3876,7 @@ function OdometerCapture({ label, odo, setOdo, regNo, photo, onPhoto, onRemove }
       <label>{label}</label>
       <input type="number" inputMode="numeric" min="0" value={odo} onChange={(e) => setOdo(e.target.value)} placeholder="e.g. 84213" />
       {last !== null && last !== undefined && <div className="section-hint">Last recorded for this vehicle: <b>{Number(last).toLocaleString("en-ZA")} km</b></div>}
+      {String(odo).replace(/\D/g, "").length > 7 && <div className="banner show err">That has too many digits for a vehicle odometer (maximum 7). Check what you typed. If you submit it, your account will be put on hold until the office reviews it.</div>}
       {lower && <div className="banner show err">This is lower than the last recorded km. Check what you typed. If you submit it, your account will be put on hold until the office reviews your odometer photo.</div>}
       {String(odo).trim() === "" ? (
         <div className="section-hint">Type the km first. You will then be asked to photograph the odometer showing that reading.</div>
