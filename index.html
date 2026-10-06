@@ -3085,28 +3085,32 @@ function BackOfficeShell({ session, role }) {
   const groups = [
     { group: "Dashboard", items: [{ id: "dashboard", label: "Overview", icon: "dashboard" }] },
     { group: "Operations", items: [
+      { id: "ops-home", label: "Operations Overview", icon: "dashboard" },
       { id: "shipments", label: "Shipments", icon: "shipments" },
       { id: "delivery-updates", label: "Delivery Updates", icon: "shipments", badge: unseen },
       { id: "failed", label: "Failed Deliveries", icon: "exception" },
-      { id: "exceptions", label: "Exceptions", icon: "exception" },
       { id: "parcels", label: "Parcel Issues", icon: "parcel" },
-    ] },
-    { group: "Drivers", items: [
       { id: "driver-onboarding", label: "Driver Onboarding", icon: "admin" },
-      { id: "safety-activity", label: "Safety & Check-ins", icon: "safety" },
     ] },
     { group: "Fleet", items: [
+      { id: "fleet-home", label: "Fleet Overview", icon: "dashboard" },
       { id: "vehicle-checks", label: "Vehicle Checks", icon: "vehicle" },
       { id: "fuel-logs", label: "Fuel Logs", icon: "fuel" },
       { id: "odometer", label: "Odometer Review", icon: "vehicle" },
+      { id: "fleet-km", label: "KM & Odometer Report", icon: "history" },
     ] },
-    { group: "Reports", items: [
-      { id: "compliance", label: "Compliance & KM", icon: "vehicle" },
+    { group: "Risk", items: [
+      { id: "risk-home", label: "Risk Overview", icon: "dashboard" },
+      { id: "safety-activity", label: "Safety & Check-ins", icon: "safety" },
+      { id: "exceptions", label: "Exceptions", icon: "exception" },
+      { id: "risk-compliance", label: "Documents & Check Compliance", icon: "history" },
+      ...(canSeeAudit ? [{ id: "audit", label: "Audit Log", icon: "history" }] : []),
+    ] },
+    { group: "Records", items: [
       { id: "records", label: "All Records & Export", icon: "history" },
     ] },
     { group: "Users & Access", items: [
       ...(isAdmin ? [{ id: "users", label: "Users & Roles", icon: "admin" }] : []),
-      ...(canSeeAudit ? [{ id: "audit", label: "Audit Log", icon: "history" }] : []),
     ] },
     ...(isAdmin ? [{ group: "My Driver Tools", items: [
       { id: "tool-safety", label: "Safety check-in", icon: "safety" },
@@ -3141,7 +3145,11 @@ function BackOfficeShell({ session, role }) {
   else if (page === "vehicle-checks") body = <LogList kind="vehicle_checks" />;
   else if (page === "fuel-logs") body = <LogList kind="fuel_logs" />;
   else if (page === "odometer") body = <OdometerReviewPage />;
-  else if (page === "compliance") body = <CompliancePage />;
+  else if (page === "ops-home") body = <SectionHome section="operations" onNavigate={go} />;
+  else if (page === "fleet-home") body = <SectionHome section="fleet" onNavigate={go} />;
+  else if (page === "risk-home") body = <SectionHome section="risk" onNavigate={go} />;
+  else if (page === "fleet-km") body = <CompliancePage section="fleet" />;
+  else if (page === "risk-compliance" || page === "compliance") body = <CompliancePage section="risk" />;
   else if (page === "records") body = <LogList />;
   else if (page === "users" && isAdmin) body = <AdminUsersTab currentUserId={session.user.id} />;
   else if (page === "audit" && canSeeAudit) body = <AuditLogPage />;
@@ -3778,8 +3786,8 @@ function csvDownload(name, headers, rows) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-function CompliancePage() {
-  const [tab, setTab] = useState("expiry");
+function CompliancePage({ section }) {
+  const [tab, setTab] = useState(section === "fleet" ? "km" : "expiry");
   const [days, setDays] = useState(60);
   const [from, setFrom] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 6); return localDateStr(d); });
   const [to, setTo] = useState(() => localDateStr(new Date()));
@@ -3833,9 +3841,9 @@ function CompliancePage() {
     <div className="content">
       <div className="filter-row">
         <select className="status-select" value={tab} onChange={(e) => setTab(e.target.value)}>
-          <option value="expiry">Documents expiring</option>
-          <option value="km">KM &amp; odometer by vehicle</option>
-          <option value="checks">Driver check compliance</option>
+          {section !== "fleet" && <option value="expiry">Documents expiring</option>}
+          {section !== "risk" && <option value="km">KM &amp; odometer by vehicle</option>}
+          {section !== "fleet" && <option value="checks">Driver check compliance</option>}
         </select>
         {tab === "expiry" ? (
           <select className="status-select" value={days} onChange={(e) => setDays(e.target.value)}>
@@ -4339,6 +4347,122 @@ function ClockNumberEditor({ user, onSaved }) {
         <button type="button" className="resolve-btn" disabled={busy || v === (user.clock_number || "")} onClick={save}>{busy ? "Saving…" : "Save"}</button>
       </div>
       {msg && <div className={"banner show " + msg.t} style={{ marginTop: 6 }}>{msg.x}</div>}
+    </div>
+  );
+}
+
+
+// ---------- Section home pages: Operations / Fleet / Risk ----------
+function SectionHome({ section, onNavigate }) {
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    let off = false;
+    (async () => {
+      const start = new Date(); start.setHours(0, 0, 0, 0); const since = start.toISOString(); const today = localDateStr();
+      const safe = (p) => p.then((r) => (r.error ? { data: [], count: 0 } : r)).catch(() => ({ data: [], count: 0 }));
+      let out = {};
+      if (section === "operations") {
+        const [ship, drv, upd] = await Promise.all([
+          safe(db.from("shipments").select("id, status, expected_delivery_date, delivered_at")),
+          safe(db.rpc("staff_list_drivers")), safe(db.rpc("staff_delivery_updates"))]);
+        out = { ship: ship.data || [], drv: drv.data || [], upd: (upd.data || []).slice(0, 6) };
+      } else if (section === "fleet") {
+        const [vc, fu, flags, open] = await Promise.all([
+          safe(db.from("vehicle_checks").select("id, driver, reg_no, check_type, created_at").gte("created_at", since).order("created_at", { ascending: false })),
+          safe(db.from("fuel_logs").select("id, driver, reg_no, litres, created_at").gte("created_at", since)),
+          safe(db.rpc("staff_odometer_flags", { p_status: "open" })),
+          safe(db.from("vehicle_checks").select("id", { count: "exact", head: true }).eq("status", "open"))]);
+        out = { vc: vc.data || [], fu: fu.data || [], flags: flags.data || [], open: open.count || 0 };
+      } else {
+        const [pa, exc, exp] = await Promise.all([
+          safe(db.from("panic_alerts").select("id, driver, status, created_at").order("created_at", { ascending: false }).limit(20)),
+          safe(db.from("exceptions").select("id, type, status, tracking_number, created_at").order("created_at", { ascending: false })),
+          safe(db.rpc("staff_expiry_report", { p_days: 30 }))]);
+        out = { pa: pa.data || [], exc: exc.data || [], exp: exp.data || [] };
+      }
+      out.today = today;
+      if (!off) setD(out);
+    })();
+    return () => { off = true; };
+  }, [section]);
+  if (!d) return <div className="content"><div className="log-empty">Loading…</div></div>;
+  const go = (p, q) => () => onNavigate(p, q || {});
+  const T = ClickTile;
+  if (section === "operations") {
+    const f = (k) => d.ship.filter(SHIPMENT_FILTERS[k].test).length;
+    const dueToday = d.ship.filter((s) => s.expected_delivery_date === d.today).length;
+    const deliveredToday = d.ship.filter((s) => s.status === "Delivered" && s.delivered_at && localDateStr(new Date(s.delivered_at)) === d.today).length;
+    const inProg = d.ship.filter((s) => ["Collected", "In Transit", "At Origin Hub", "At Destination Hub", "Out for Delivery", "Delivery Attempted"].includes(s.status)).length;
+    const awaitingDrv = d.drv.filter((x) => x.driver_status === "verification_pending").length;
+    return (
+      <div className="content dash">
+        <div className="dash-section-title">Operations: deliveries and drivers</div>
+        <div className="stat-grid">
+          <T label="Due today" value={dueToday} hint="Shipments" onClick={go("shipments", { filter: "active" })} />
+          <T label="Delivered today" value={deliveredToday} tone="good" hint="Delivered" onClick={go("shipments", { filter: "delivered" })} />
+          <T label="In progress" value={inProg} hint="In transit / out" onClick={go("shipments", { filter: "transit" })} />
+          <T label="Awaiting collection" value={f("awaiting")} hint="Pending" onClick={go("shipments", { filter: "awaiting" })} />
+          <T label="Failed deliveries" value={f("failed")} tone={f("failed") > 0 ? "bad" : ""} hint="Review" onClick={go("failed", {})} />
+          <T label="Overdue" value={f("overdue")} tone={f("overdue") > 0 ? "warn" : ""} hint="Past expected date" onClick={go("shipments", { filter: "overdue" })} />
+          <T label="Drivers awaiting approval" value={awaitingDrv} tone={awaitingDrv > 0 ? "warn" : ""} hint="Driver Onboarding" onClick={go("driver-onboarding", { filter: "verification_pending" })} />
+        </div>
+        <div className="dash-section-title" style={{ marginTop: 22 }}>Latest delivery updates</div>
+        {d.upd.length === 0 ? <div className="log-empty">No completed deliveries yet.</div> : (
+          <div className="feed">{d.upd.map((u, i) => (
+            <button key={i} type="button" className="feed-row" onClick={go("delivery-updates", {})}>
+              <span className="feed-text">{(u.outcome === "Delivered" ? "✓ " : "✗ ") + u.tracking_number + " · " + (u.recipient_name || "") + " · " + (u.driver_name || "Driver")}</span>
+              <span className="feed-time">{timeAgo(u.completed_at)}</span>
+            </button>))}
+          </div>)}
+      </div>
+    );
+  }
+  if (section === "fleet") {
+    const vehicles = new Set([...d.vc, ...d.fu].map((r) => String(r.reg_no || "").replace(/\s/g, "").toUpperCase()).filter(Boolean));
+    const litres = d.fu.reduce((a, r) => a + (Number(r.litres) || 0), 0);
+    return (
+      <div className="content dash">
+        <div className="dash-section-title">Fleet: vehicles, fuel and odometers</div>
+        <div className="stat-grid">
+          <T label="Vehicle checks today" value={d.vc.length} hint="Vehicle Checks" onClick={go("vehicle-checks", {})} />
+          <T label="Vehicles active today" value={vehicles.size} hint="Checked or fuelled" onClick={go("vehicle-checks", {})} />
+          <T label="Fuel fills today" value={d.fu.length} hint={Math.round(litres) + " litres"} onClick={go("fuel-logs", {})} />
+          <T label="Odometer holds open" value={d.flags.length} tone={d.flags.length > 0 ? "bad" : ""} hint="Odometer Review" onClick={go("odometer", {})} />
+          <T label="Open defect notes" value={d.open} tone={d.open > 0 ? "warn" : ""} hint="Vehicle Checks" onClick={go("vehicle-checks", {})} />
+          <T label="KM by vehicle" value="›" hint="KM & Odometer report" onClick={go("fleet-km", {})} />
+        </div>
+        <div className="dash-section-title" style={{ marginTop: 22 }}>Today's vehicle checks</div>
+        {d.vc.length === 0 ? <div className="log-empty">No vehicle checks yet today.</div> : (
+          <div className="feed">{d.vc.slice(0, 8).map((v) => (
+            <button key={v.id} type="button" className="feed-row" onClick={go("vehicle-checks", {})}>
+              <span className="feed-text">{(v.driver || "Driver") + " · " + (v.reg_no || "") + " · " + (v.check_type === "PM" ? "closing" : "opening")}</span>
+              <span className="feed-time">{timeAgo(v.created_at)}</span>
+            </button>))}
+          </div>)}
+      </div>
+    );
+  }
+  const activePanics = d.pa.filter((x) => x.status === "open").length;
+  const openExc = d.exc.filter((x) => !["Resolved", "Closed"].includes(x.status));
+  const expired = d.exp.filter((x) => x.days_left < 0).length;
+  return (
+    <div className="content dash">
+      <div className="dash-section-title">Risk: safety, exceptions and compliance</div>
+      <div className="stat-grid">
+        <T label="Active emergency alerts" value={activePanics} tone={activePanics > 0 ? "bad" : ""} hint="Safety & Check-ins" onClick={go("safety-activity", {})} />
+        <T label="Open exceptions" value={openExc.length} tone={openExc.length > 0 ? "warn" : ""} hint="Exceptions" onClick={go("exceptions", { filter: "open" })} />
+        <T label="Documents expired" value={expired} tone={expired > 0 ? "bad" : ""} hint="Expiry report" onClick={go("risk-compliance", {})} />
+        <T label="Expiring in 30 days" value={d.exp.length - expired} tone={d.exp.length - expired > 0 ? "warn" : ""} hint="Expiry report" onClick={go("risk-compliance", {})} />
+        <T label="Driver check compliance" value="›" hint="Who did their checks" onClick={go("risk-compliance", {})} />
+      </div>
+      <div className="dash-section-title" style={{ marginTop: 22 }}>Open exceptions</div>
+      {openExc.length === 0 ? <div className="alert-row ok">✓ No open exceptions.</div> : (
+        <div className="feed">{openExc.slice(0, 8).map((x) => (
+          <button key={x.id} type="button" className="feed-row" onClick={go("exceptions", { filter: "open" })}>
+            <span className="feed-text">{x.type + (x.tracking_number ? " (" + x.tracking_number + ")" : "") + " — " + x.status}</span>
+            <span className="feed-time">{timeAgo(x.created_at)}</span>
+          </button>))}
+        </div>)}
     </div>
   );
 }
